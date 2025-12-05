@@ -1,0 +1,124 @@
+#!jinja2
+
+{# Import a Python function to load ICAOs. #}
+{% from "load_data" import load_json %}
+
+{# Load data from the specified file. #}
+{% set all_icaos = load_json('all_icaos.json') %}
+
+{# Extract a list of ICAOs from the data file. #}
+{% set icaos = all_icaos | map(attribute="icao") | list %}
+
+[scheduler]
+    UTC mode = True # Ignore DST
+    allow implicit tasks = True
+
+[task parameters]
+    icao = {{ icaos | join(', ') }}
+
+[scheduling]
+    initial cycle point = 20251204T1600Z
+    runahead limit = P0
+
+    [[xtriggers]]
+        clock1 = wall_clock()
+        clock2 = wall_clock(offset=PT30M)
+        clock3 = wall_clock(offset=PT60M)
+        clock4 = wall_clock(offset=PT90M)
+
+    [[graph]]
+        PT3H = @clock1 => make_tafs<icao> => save_tafs_main
+        PT3H = @clock2 => get_latest_metars_1 => update_tafs_1<icao> => save_tafs_update_1
+        PT3H = @clock3 => get_latest_metars_2 => update_tafs_2<icao> => save_tafs_update_2
+        PT3H = @clock4 => get_issued_tafs => housekeep
+
+[runtime]
+    [[root]]
+        env-script = eval $(rose task-env)
+        script = rose task-run --verbose
+        platform = spice
+        submission retry delays = 3*PT30S, 3*PT5M, 5*PT15M
+        [[[events]]]
+            mail events = submission timeout, execution timeout
+        [[[environment]]]
+            CODE_DIR = $ROSE_SUITE_DIR/bin/improver_tafs_live
+            OUT_DIR = /home/users/andre.lanyon/public_html/tafs
+            ML_DIR = /data/users/andre.lanyon/tafs/ml_pickles_new
+            SORTED_DATA = /data/users/andre.lanyon/tafs/sorted_data
+            TAF_DIR=/data/scratch/andre.lanyon/tafs/temp_tafs
+            DATA_DIR = /data/scratch/andre.lanyon/tafs/improver_data
+            AIRPORT_INFO_FILE = $CODE_DIR/taf_generator/data_extraction/taf_info.csv
+            METDB_EMAIL=andre.lanyon@metoffice.gov.uk
+            MODEL=XGBoost
+
+        [[make_tafs<icao>]]
+            [[[environment]]]
+                ROSE_TASK_APP = make_tafs
+                ICAO = $CYLC_TASK_PARAM_icao
+                OBS = no
+            [[[directives]]]
+                --mem = 1GB
+                --ntasks = 4
+                --time = 30
+
+        [[save_tafs_main]]
+            [[[environment]]]
+                OBS = no
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
+
+        [[get_latest_metars_1]]
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
+
+        [[get_latest_metars_2]]
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
+
+        [[update_tafs_1<icao>]]
+            [[[environment]]]
+                ROSE_TASK_APP = update_tafs_1
+                ICAO = $CYLC_TASK_PARAM_icao
+                OBS = 1
+            [[[directives]]]
+                --mem = 1GB
+                --ntasks = 4
+                --time = 30
+
+        [[save_tafs_update_1]]
+            [[[environment]]]
+                OBS = 1
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
+
+        [[update_tafs_2<icao>]]
+            [[[environment]]]
+                ROSE_TASK_APP = update_tafs_2
+                ICAO = $CYLC_TASK_PARAM_icao
+                OBS = 2
+            [[[directives]]]
+                --mem = 1GB
+                --ntasks = 4
+                --time = 30
+
+        [[save_tafs_update_2]]
+            [[[environment]]]
+                OBS = 2
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
+
+        [[get_issued_tafs]]
+            [[[directives]]]
+                --mem = 100MB
+                --ntasks = 1
+                --time = 5
