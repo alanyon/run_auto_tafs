@@ -17,7 +17,7 @@
     icao = {{ icaos | join(', ') }}
 
 [scheduling]
-    initial cycle point = 20251204T1600Z
+    initial cycle point = 20251205T1600Z
     runahead limit = P0
 
     [[xtriggers]]
